@@ -1,0 +1,120 @@
+[
+  {
+    "operation": "shift",
+    "spec": {
+      "id":             "event_id",
+      "index":          "event_index",
+      "period":         "period",
+      "timestamp":      "timestamp",
+      "minute":         "minute",
+      "second":         "second",
+      "duration":       "duration",
+      "match_id":       "match_id",
+      "competition_name": "competition_name",
+      "season_name":    "season_name",
+      "type": {
+        "id":   "type_id",
+        "name": "type_name"
+      },
+      "possession":     "possession",
+      "possession_team": {
+        "id":   "possession_team_id",
+        "name": "possession_team_name"
+      },
+      "play_pattern": {
+        "name": "play_pattern"
+      },
+      "team": {
+        "id":   "team_id",
+        "name": "team_name"
+      },
+      "player": {
+        "id":   "player_id",
+        "name": "player_name"
+      },
+      "position": {
+        "id":   "position_id",
+        "name": "position_name"
+      },
+      "location": {
+        "0": "location_x",
+        "1": "location_y"
+      },
+      "under_pressure": "under_pressure",
+      "pass": {
+        "length":       "pass_length",
+        "angle":        "pass_angle",
+        "cross":        "pass_cross",
+        "through_ball": "pass_through_ball",
+        "switch":       "pass_switch",
+        "end_location": {
+          "0": "pass_end_x",
+          "1": "pass_end_y"
+        },
+        "recipient": {
+          "id":   "pass_recipient_id",
+          "name": "pass_recipient_name"
+        },
+        "height": {
+          "name": "pass_height"
+        },
+        "body_part": {
+          "name": "pass_body_part"
+        },
+        "type": {
+          "name": "pass_type"
+        },
+        "outcome": {
+          "name": "pass_outcome"
+        }
+      },
+      "shot": {
+        "statsbomb_xg": "shot_xg",
+        "first_time":   "shot_first_time",
+        "one_on_one":   "shot_one_on_one",
+        "end_location": {
+          "0": "shot_end_x",
+          "1": "shot_end_y",
+          "2": "shot_end_z"
+        },
+        "outcome": {
+          "name": "shot_outcome"
+        },
+        "technique": {
+          "name": "shot_technique"
+        },
+        "body_part": {
+          "name": "shot_body_part"
+        }
+      },
+      "carry": {
+        "end_location": {
+          "0": "carry_end_x",
+          "1": "carry_end_y"
+        }
+      },
+      "dribble": {
+        "outcome": {
+          "name": "dribble_outcome"
+        },
+        "nutmeg":  "dribble_nutmeg"
+      },
+      "interception": {
+        "outcome": {
+          "name": "interception_outcome"
+        }
+      },
+      "goalkeeper": {
+        "outcome": {
+          "name": "goalkeeper_outcome"
+        },
+        "position": {
+          "name": "goalkeeper_position"
+        },
+        "technique": {
+          "name": "goalkeeper_technique"
+        }
+      }
+    }
+  }
+]

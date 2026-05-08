@@ -1,0 +1,88 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "analyzer": {
+        "football_analyzer": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": ["lowercase", "asciifolding"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "event_id":              { "type": "keyword" },
+      "event_index":           { "type": "integer" },
+      "match_id":              { "type": "integer" },
+      "competition_name":      { "type": "keyword" },
+      "season_name":           { "type": "keyword" },
+      "period":                { "type": "byte" },
+      "timestamp":             { "type": "keyword" },
+      "minute":                { "type": "short" },
+      "second":                { "type": "byte" },
+      "duration":              { "type": "float" },
+      "possession":            { "type": "integer" },
+      "possession_team_name":  { "type": "keyword" },
+      "play_pattern":          { "type": "keyword" },
+      "under_pressure":        { "type": "boolean" },
+
+      "type_id":               { "type": "integer" },
+      "type_name":             { "type": "keyword" },
+
+      "team_id":               { "type": "integer" },
+      "team_name":             { "type": "keyword" },
+
+      "player_id":             { "type": "integer" },
+      "player_name": {
+        "type": "text",
+        "analyzer": "football_analyzer",
+        "fields": { "keyword": { "type": "keyword" } }
+      },
+      "position_name":         { "type": "keyword" },
+
+      "location": {
+        "type": "geo_point"
+      },
+      "location_x":            { "type": "float" },
+      "location_y":            { "type": "float" },
+
+      "pass_length":           { "type": "float" },
+      "pass_angle":            { "type": "float" },
+      "pass_end_x":            { "type": "float" },
+      "pass_end_y":            { "type": "float" },
+      "pass_recipient_name":   { "type": "keyword" },
+      "pass_height":           { "type": "keyword" },
+      "pass_body_part":        { "type": "keyword" },
+      "pass_type":             { "type": "keyword" },
+      "pass_outcome":          { "type": "keyword" },
+      "pass_cross":            { "type": "boolean" },
+      "pass_through_ball":     { "type": "boolean" },
+      "pass_switch":           { "type": "boolean" },
+
+      "shot_xg":               { "type": "float" },
+      "shot_end_x":            { "type": "float" },
+      "shot_end_y":            { "type": "float" },
+      "shot_end_z":            { "type": "float" },
+      "shot_outcome":          { "type": "keyword" },
+      "shot_technique":        { "type": "keyword" },
+      "shot_body_part":        { "type": "keyword" },
+      "shot_first_time":       { "type": "boolean" },
+      "shot_one_on_one":       { "type": "boolean" },
+
+      "carry_end_x":           { "type": "float" },
+      "carry_end_y":           { "type": "float" },
+
+      "dribble_outcome":       { "type": "keyword" },
+      "dribble_nutmeg":        { "type": "boolean" },
+
+      "interception_outcome":  { "type": "keyword" },
+
+      "goalkeeper_outcome":    { "type": "keyword" },
+      "goalkeeper_position":   { "type": "keyword" },
+      "goalkeeper_technique":  { "type": "keyword" }
+    }
+  }
+}

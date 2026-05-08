@@ -1,0 +1,248 @@
+version: "3.8"
+
+x-airflow-common: &airflow-common
+  build: ./dags
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow_db
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__LOGGING__LOGGING_LEVEL: WARNING
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: ${POSTGRES_USER}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    POSTGRES_DB: ${POSTGRES_DB}
+    ES_HOST: elasticsearch
+    ES_PORT: "9200"
+    ES_INDEX: ${ES_INDEX}
+    NIFI_URL: http://nifi:8080
+    NIFI_USER: ${NIFI_USER}
+    NIFI_PASSWORD: ${NIFI_PASSWORD}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - airflow-logs:/opt/airflow/logs
+    - shared-data:/shared
+  networks:
+    - pipeline-net
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # ── Relational store ──────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - pipeline-net
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pipeline-net
+
+  # ── Document store ────────────────────────────────────────────────────────
+  elasticsearch:
+    image: elasticsearch:8.12.1
+    container_name: elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx1g
+      cluster.name: football-cluster
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -qv '\"status\":\"red\"'"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 40s
+    networks:
+      - pipeline-net
+
+  kibana:
+    image: kibana:8.12.1
+    container_name: kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      SERVER_NAME: kibana
+      XPACK_SECURITY_ENABLED: "false"
+    ports:
+      - "5601:5601"
+    volumes:
+      - kibana-data:/usr/share/kibana/data
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - pipeline-net
+
+  # ── NiFi data flow ────────────────────────────────────────────────────────
+  nifi:
+    image: apache/nifi:1.23.2
+    container_name: nifi
+    environment:
+      NIFI_WEB_HTTP_HOST: 0.0.0.0
+      NIFI_WEB_HTTP_PORT: "8080"
+      NIFI_WEB_HTTPS_PORT: ""
+      SINGLE_USER_CREDENTIALS_USERNAME: ${NIFI_USER}
+      SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_PASSWORD}
+      NIFI_JVM_HEAP_INIT: 512m
+      NIFI_JVM_HEAP_MAX: 1g
+    ports:
+      - "8181:8080"
+    volumes:
+      - nifi-conf:/opt/nifi/nifi-current/conf
+      - nifi-content:/opt/nifi/nifi-current/content_repository
+      - nifi-database:/opt/nifi/nifi-current/database_repository
+      - nifi-flowfile:/opt/nifi/nifi-current/flowfile_repository
+      - nifi-provenance:/opt/nifi/nifi-current/provenance_repository
+      - nifi-logs:/opt/nifi/nifi-current/logs
+      - shared-data:/shared
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/nifi-api/system-diagnostics"]
+      interval: 30s
+      timeout: 15s
+      retries: 20
+      start_period: 120s
+    networks:
+      - pipeline-net
+
+  nifi-setup:
+    build:
+      context: .
+      dockerfile: ./src/nifi_setup/Dockerfile
+    container_name: nifi-setup
+    environment:
+      NIFI_URL: http://nifi:8080
+      NIFI_USER: ${NIFI_USER}
+      NIFI_PASSWORD: ${NIFI_PASSWORD}
+      ES_HOST: elasticsearch
+      ES_PORT: "9200"
+      ES_INDEX: ${ES_INDEX}
+    volumes:
+      - shared-data:/shared
+    depends_on:
+      nifi:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - pipeline-net
+
+  # ── Airflow orchestration ─────────────────────────────────────────────────
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    command: >
+      bash -c "
+        airflow db migrate &&
+        airflow users create
+          --username ${AIRFLOW_USER}
+          --password ${AIRFLOW_PASSWORD}
+          --firstname Admin
+          --lastname User
+          --role Admin
+          --email admin@football-pipeline.local 2>/dev/null || true
+      "
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow-webserver
+    command: airflow webserver
+    ports:
+      - "8082:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: airflow scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ── Match replay streaming service ────────────────────────────────────────
+  match-replay:
+    build: ./src/match_replay
+    container_name: match-replay
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      ES_HOST: elasticsearch
+      ES_PORT: "9200"
+      ES_REPLAY_INDEX: football_replay
+      REPLAY_SPEED: "30"
+    volumes:
+      - shared-data:/shared
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - pipeline-net
+
+volumes:
+  postgres-data:
+  pgadmin-data:
+  es-data:
+  kibana-data:
+  nifi-conf:
+  nifi-content:
+  nifi-database:
+  nifi-flowfile:
+  nifi-provenance:
+  nifi-logs:
+  airflow-logs:
+  shared-data:
+
+networks:
+  pipeline-net:
+    driver: bridge
