@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS fact_passes (
     pass_body_part      TEXT,
     pass_type           TEXT,
     pass_outcome        TEXT,
-    cross               BOOLEAN DEFAULT FALSE,
+    is_cross            BOOLEAN DEFAULT FALSE,
     through_ball        BOOLEAN DEFAULT FALSE,
     switch              BOOLEAN DEFAULT FALSE
 );

@@ -293,7 +293,7 @@ def statsbomb_pipeline():
                         INSERT INTO fact_passes (
                             event_uuid, recipient_id, pass_length, pass_angle,
                             pass_end_x, pass_end_y, pass_height, pass_body_part,
-                            pass_type, pass_outcome, cross, through_ball, switch
+                            pass_type, pass_outcome, is_cross, through_ball, switch
                         ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (event_uuid) DO NOTHING;
                     """, pass_rows, page_size=500)
