@@ -374,8 +374,10 @@ def main() -> None:
     else:
         build_nifi_flow(token, root_id)
 
-    os.makedirs("/shared/raw", exist_ok=True)
-    os.makedirs("/shared/processed", exist_ok=True)
+    for d in ["/shared/raw", "/shared/processed", "/shared/nifi_trigger"]:
+        os.makedirs(d, exist_ok=True)
+        os.chmod(d, 0o777)
+    os.chmod("/shared", 0o777)
     log.info("All setup tasks complete.")
 
 

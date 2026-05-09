@@ -102,16 +102,24 @@ def statsbomb_pipeline():
             ).head(MATCH_LIMIT)
 
             for _, m in matches.iterrows():
+                # statsbombpy 1.0.x: home_team/away_team are dicts
+                ht = m["home_team"] if isinstance(m.get("home_team"), dict) else {}
+                at = m["away_team"] if isinstance(m.get("away_team"), dict) else {}
+                home_team_id   = int(ht.get("home_team_id",   m.get("home_team_id",   0)))
+                home_team_name = ht.get("home_team_name",  m.get("home_team_name",  ""))
+                away_team_id   = int(at.get("away_team_id",   m.get("away_team_id",   0)))
+                away_team_name = at.get("away_team_name",  m.get("away_team_name",  ""))
+
                 # Teams
-                for tid, tname in [
-                    (int(m["home_team_id"]), m["home_team"]),
-                    (int(m["away_team_id"]), m["away_team"]),
-                ]:
+                for tid, tname in [(home_team_id, home_team_name), (away_team_id, away_team_name)]:
                     cur.execute("""
                         INSERT INTO dim_teams (team_id, team_name)
                         VALUES (%s, %s)
                         ON CONFLICT (team_id) DO NOTHING;
                     """, (tid, tname))
+
+                stadium = m.get("stadium")
+                referee = m.get("referee")
 
                 # Match
                 cur.execute("""
@@ -127,12 +135,12 @@ def statsbomb_pipeline():
                     int(m["match_id"]),
                     comp["competition_id"],
                     m.get("match_date"),
-                    int(m["home_team_id"]), m["home_team"],
-                    int(m["away_team_id"]), m["away_team"],
+                    home_team_id, home_team_name,
+                    away_team_id, away_team_name,
                     int(m.get("home_score", 0)),
                     int(m.get("away_score", 0)),
-                    m.get("stadium", {}).get("name") if isinstance(m.get("stadium"), dict) else None,
-                    m.get("referee", {}).get("name") if isinstance(m.get("referee"), dict) else None,
+                    stadium.get("name") if isinstance(stadium, dict) else None,
+                    referee.get("name") if isinstance(referee, dict) else None,
                 ))
 
         conn.commit()
