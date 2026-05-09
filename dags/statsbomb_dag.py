@@ -40,13 +40,13 @@ COMPETITIONS = [
     {"competition_id": 55, "season_id": 282,
      "competition_name": "UEFA Euro", "season_name": "2024",
      "country_name": "Europe"},
-    {"competition_id": 11, "season_id": 27,
-     "competition_name": "La Liga", "season_name": "2015/16",
-     "country_name": "Spain"},
+    {"competition_id": 43, "season_id": 106,
+     "competition_name": "FIFA World Cup", "season_name": "2022",
+     "country_name": "World"},
 ]
 
-# Limit per competition for demo (keeps cold-start under 15 min)
-MATCH_LIMIT = 40
+# No match limit — ingest the full tournament data for both competitions
+MATCH_LIMIT = None
 
 # ── DAG definition ────────────────────────────────────────────────────────────
 
