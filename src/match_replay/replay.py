@@ -178,9 +178,10 @@ def _load_match_events(conn, match_id: int) -> list[dict]:
 
 def _ensure_replay_index(es: Elasticsearch) -> None:
     if not es.indices.exists(index=ES_REPLAY_IDX):
-        es.indices.create(index=ES_REPLAY_IDX, body={
-            "settings": {"number_of_shards": 1, "number_of_replicas": 0},
-            "mappings": {
+        es.indices.create(
+            index=ES_REPLAY_IDX,
+            settings={"number_of_shards": 1, "number_of_replicas": 0},
+            mappings={
                 "properties": {
                     "replay_ts":   {"type": "date"},
                     "match_id":    {"type": "integer"},
@@ -196,8 +197,8 @@ def _ensure_replay_index(es: Elasticsearch) -> None:
                     "shot_outcome":{"type": "keyword"},
                     "pass_outcome":{"type": "keyword"},
                 }
-            }
-        })
+            },
+        )
         log.info("Created Elasticsearch index '%s'", ES_REPLAY_IDX)
 
 

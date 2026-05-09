@@ -276,7 +276,7 @@ def build_nifi_flow(token: str, root_id: str) -> None:
         "org.apache.nifi.processors.standard.ReplaceText",
         "ReplaceText (ES bulk header)",
         props={
-            "Replacement Strategy": "Literal Replacement",
+            "Replacement Strategy": "Regex Replace",
             "Search Value":         "([\\s\\S]+)",
             "Replacement Value":    bulk_header,
             "Evaluation Mode":      "Entire text",

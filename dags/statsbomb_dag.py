@@ -201,7 +201,7 @@ def statsbomb_pipeline():
                     continue
 
                 try:
-                    events = sb.events(match_id=match_id, split=False, flatten_attrs=False)
+                    events = sb.events(match_id=match_id, split=False, flatten_attrs=True)
                 except Exception as exc:
                     log.warning("Could not load events for match %s: %s", match_id, exc)
                     continue
