@@ -164,17 +164,7 @@ services:
   airflow-init:
     <<: *airflow-common
     container_name: airflow-init
-    command: >
-      bash -c "
-        airflow db migrate &&
-        airflow users create
-          --username ${AIRFLOW_USER}
-          --password ${AIRFLOW_PASSWORD}
-          --firstname Admin
-          --lastname User
-          --role Admin
-          --email admin@football-pipeline.local 2>/dev/null || true
-      "
+    command: ["bash", "-c", "airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@football-pipeline.local || true"]
     restart: "no"
 
   airflow-webserver:
