@@ -225,7 +225,7 @@ def build_nifi_flow(token: str, root_id: str) -> None:
     with open(JOLT_SPEC_PATH) as f:
         jolt_spec = json.dumps(json.load(f))
 
-    bulk_header = '{"index":{"_index":"' + ES_INDEX + '"}}\\n$1\\n'
+    bulk_header = '{"index":{"_index":"' + ES_INDEX + '"}}\n$1\n'
 
     pg = create_pg(token, root_id, "StatsBomb Football Pipeline", x=150, y=150)
     pg_id = pg["id"]
