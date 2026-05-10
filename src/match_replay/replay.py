@@ -152,7 +152,7 @@ def _load_match_events(conn, match_id: int) -> list[dict]:
             s_pass.pass_end_y,
             s_pass.pass_outcome,
             s_pass.pass_body_part,
-            s_pass.cross,
+            s_pass.is_cross AS "cross",
             -- shot details
             s_shot.shot_xg,
             s_shot.shot_end_x,
