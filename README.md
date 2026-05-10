@@ -262,6 +262,16 @@ LIMIT 20;
 
 ---
 
+## AI Usage Declaration
+
+**Tool:** Claude Code (Anthropic)
+
+**Purpose:** Claude Code was used as a coding and reasoning assistant during development. It helped with implementation details such as writing boilerplate code, debugging configuration issues, and thinking through technical problems. The overall architecture, project design, dataset selection, and engineering decisions were planned and owned by the team.
+
+**Validation:** The team tested the full pipeline end-to-end multiple times across different environments. All AI-assisted outputs were reviewed, understood, and verified by team members before being included in the project.
+
+---
+
 ## Stopping and Cleaning Up
 
 ```bash
