@@ -4,7 +4,7 @@
 
 An end-to-end, fully containerised data engineering pipeline that ingests
 [StatsBomb open event data](https://github.com/statsbomb/open-data)
-(**UEFA Euro 2024** + **FIFA World Cup 2022** — 115 matches, ~240 000 events),
+(**UEFA Euro 2024** + **FIFA World Cup 2022** — 115 matches, ~420 000 events),
 normalises it into a PostgreSQL star schema, indexes it into Elasticsearch,
 and exposes it through interactive Kibana dashboards with a live "match replay"
 streaming service.
@@ -164,8 +164,8 @@ They are kept entirely separate — no cross-competition data is mixed.
 
 | Competition | Season | Matches | Events |
 |---|---|---|---|
-| UEFA Euro 2024 | 2024 | 51 | ~113 000 |
-| FIFA World Cup 2022 | 2022 | 64 | ~127 000 |
+| UEFA Euro 2024 | 2024 | 51 | ~188 000 |
+| FIFA World Cup 2022 | 2022 | 64 | ~235 000 |
 
 ---
 
