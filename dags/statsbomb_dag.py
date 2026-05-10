@@ -77,14 +77,14 @@ def statsbomb_pipeline():
     # ── Task 2: Load dimension tables ─────────────────────────────────────────
     @task
     def load_dimensions():
-        """Populate dim_competitions, dim_matches, dim_teams, dim_players."""
-        from statsbombpy import sb
+        """Populate dim_competitions and dim_matches from StatsBomb's matches JSON."""
+        import urllib.request
 
+        raw_base = "https://raw.githubusercontent.com/statsbomb/open-data/master/data"
         conn = _pg_conn()
         cur = conn.cursor()
 
         for comp in COMPETITIONS:
-            # Upsert competition
             cur.execute("""
                 INSERT INTO dim_competitions
                     (competition_id, competition_name, season_id, season_name, country_name)
@@ -96,32 +96,16 @@ def statsbomb_pipeline():
                   comp["season_id"],     comp["season_name"],
                   comp["country_name"]))
 
-            matches = sb.matches(
-                competition_id=comp["competition_id"],
-                season_id=comp["season_id"],
-            ).head(MATCH_LIMIT)
+            matches_url = f"{raw_base}/matches/{comp['competition_id']}/{comp['season_id']}.json"
+            with urllib.request.urlopen(matches_url, timeout=30) as r:
+                matches = json.loads(r.read())
 
-            for _, m in matches.iterrows():
-                # statsbombpy 1.0.x: home_team/away_team are dicts
-                ht = m["home_team"] if isinstance(m.get("home_team"), dict) else {}
-                at = m["away_team"] if isinstance(m.get("away_team"), dict) else {}
-                home_team_id   = int(ht.get("home_team_id",   m.get("home_team_id",   0)))
-                home_team_name = ht.get("home_team_name",  m.get("home_team_name",  ""))
-                away_team_id   = int(at.get("away_team_id",   m.get("away_team_id",   0)))
-                away_team_name = at.get("away_team_name",  m.get("away_team_name",  ""))
+            for m in matches:
+                home_team = m.get("home_team") or {}
+                away_team = m.get("away_team") or {}
+                stadium   = m.get("stadium")   or {}
+                referee   = m.get("referee")   or {}
 
-                # Teams
-                for tid, tname in [(home_team_id, home_team_name), (away_team_id, away_team_name)]:
-                    cur.execute("""
-                        INSERT INTO dim_teams (team_id, team_name)
-                        VALUES (%s, %s)
-                        ON CONFLICT (team_id) DO NOTHING;
-                    """, (tid, tname))
-
-                stadium = m.get("stadium")
-                referee = m.get("referee")
-
-                # Match
                 cur.execute("""
                     INSERT INTO dim_matches (
                         match_id, competition_id, match_date,
@@ -135,18 +119,21 @@ def statsbomb_pipeline():
                     int(m["match_id"]),
                     comp["competition_id"],
                     m.get("match_date"),
-                    home_team_id, home_team_name,
-                    away_team_id, away_team_name,
-                    int(m.get("home_score", 0)),
-                    int(m.get("away_score", 0)),
+                    int(home_team.get("home_team_id") or 0),
+                    home_team.get("home_team_name") or "",
+                    int(away_team.get("away_team_id") or 0),
+                    away_team.get("away_team_name") or "",
+                    int(m.get("home_score") or 0),
+                    int(m.get("away_score") or 0),
                     stadium.get("name") if isinstance(stadium, dict) else None,
                     referee.get("name") if isinstance(referee, dict) else None,
                 ))
 
+            log.info("Loaded %d matches for %s", len(matches), comp["competition_name"])
+
         conn.commit()
         cur.close()
         conn.close()
-        log.info("Dimensions loaded successfully.")
 
     # ── Task 3: Download raw events (for NiFi → ES path) ─────────────────────
     @task
@@ -188,154 +175,186 @@ def statsbomb_pipeline():
     # ── Task 4: Load PostgreSQL fact tables ───────────────────────────────────
     @task
     def load_fact_tables():
-        """Load fact_events, fact_passes, fact_shots from statsbombpy DataFrames."""
-        from statsbombpy import sb
+        """
+        Load fact_events / fact_passes / fact_shots and the dimension tables that
+        depend on event content (dim_players, dim_teams, dim_event_types).
 
+        We parse the raw StatsBomb JSON from GitHub directly because statsbombpy
+        with flatten_attrs=True strips IDs from nested player/team/type objects.
+        """
+        import urllib.request
+
+        raw_base = "https://raw.githubusercontent.com/statsbomb/open-data/master/data"
         conn = _pg_conn()
         cur = conn.cursor()
 
-        for comp in COMPETITIONS:
-            matches = sb.matches(
-                competition_id=comp["competition_id"],
-                season_id=comp["season_id"],
-            ).head(MATCH_LIMIT)
+        cur.execute("SELECT match_id FROM dim_matches ORDER BY match_id;")
+        all_match_ids = [r[0] for r in cur.fetchall()]
 
-            for _, m in matches.iterrows():
-                match_id = int(m["match_id"])
+        for match_id in all_match_ids:
+            # Idempotency: skip already-loaded matches
+            cur.execute("SELECT 1 FROM fact_events WHERE match_id = %s LIMIT 1", (match_id,))
+            if cur.fetchone():
+                continue
 
-                # Skip if already loaded (idempotency key = match_id)
-                cur.execute("SELECT 1 FROM fact_events WHERE match_id = %s LIMIT 1", (match_id,))
-                if cur.fetchone():
+            events_url = f"{raw_base}/events/{match_id}.json"
+            try:
+                with urllib.request.urlopen(events_url, timeout=60) as r:
+                    events = json.loads(r.read())
+            except Exception as exc:
+                log.warning("Could not download events for match %s: %s", match_id, exc)
+                continue
+
+            players, teams, event_types = {}, {}, {}
+            event_rows, pass_rows, shot_rows = [], [], []
+
+            for ev in events:
+                ev_id = ev.get("id")
+                if not ev_id:
                     continue
 
-                try:
-                    events = sb.events(match_id=match_id, split=False, flatten_attrs=True)
-                except Exception as exc:
-                    log.warning("Could not load events for match %s: %s", match_id, exc)
-                    continue
+                player = ev.get("player") or {}
+                team   = ev.get("team")   or {}
+                type_  = ev.get("type")   or {}
 
-                if events.empty:
-                    continue
+                player_id = player.get("id")   if isinstance(player, dict) else None
+                team_id   = team.get("id")     if isinstance(team, dict)   else None
+                type_id   = type_.get("id")    if isinstance(type_, dict)  else None
 
-                # Upsert players
-                if "player_id" in events.columns:
-                    players = (
-                        events[["player_id", "player"]].dropna(subset=["player_id"])
-                        .drop_duplicates("player_id")
-                    )
-                    for _, row in players.iterrows():
-                        cur.execute("""
-                            INSERT INTO dim_players (player_id, player_name)
-                            VALUES (%s, %s)
-                            ON CONFLICT (player_id) DO NOTHING;
-                        """, (int(row["player_id"]), str(row["player"])))
+                if player_id and player.get("name"):
+                    players[player_id] = player["name"]
+                if team_id and team.get("name"):
+                    teams[team_id] = team["name"]
+                if type_id and type_.get("name"):
+                    event_types[type_id] = type_["name"]
 
-                # Upsert event types
-                if "type_id" in events.columns:
-                    types = (
-                        events[["type_id", "type"]].dropna(subset=["type_id"])
-                        .drop_duplicates("type_id")
-                    )
-                    for _, row in types.iterrows():
-                        cur.execute("""
-                            INSERT INTO dim_event_types (type_id, type_name)
-                            VALUES (%s, %s)
-                            ON CONFLICT (type_id) DO NOTHING;
-                        """, (int(row["type_id"]), str(row["type"])))
+                loc = ev.get("location") or []
+                lx = float(loc[0]) if len(loc) >= 2 else None
+                ly = float(loc[1]) if len(loc) >= 2 else None
 
-                # ── fact_events ──
-                event_rows = []
-                for _, ev in events.iterrows():
-                    loc = ev.get("location")
-                    lx = float(loc[0]) if isinstance(loc, list) and len(loc) >= 2 else None
-                    ly = float(loc[1]) if isinstance(loc, list) and len(loc) >= 2 else None
-                    event_rows.append((
-                        str(ev["id"]),
-                        int(ev.get("index", 0)),
-                        match_id,
-                        int(ev["team_id"]) if pd.notna(ev.get("team_id")) else None,
-                        int(ev["player_id"]) if pd.notna(ev.get("player_id")) else None,
-                        int(ev["type_id"]) if pd.notna(ev.get("type_id")) else None,
-                        int(ev.get("period", 0)),
-                        int(ev.get("minute", 0)),
-                        int(ev.get("second", 0)),
-                        str(ev.get("timestamp", "")),
-                        lx, ly,
-                        float(ev["duration"]) if pd.notna(ev.get("duration")) else None,
-                        int(ev.get("possession", 0)) if pd.notna(ev.get("possession")) else None,
-                        bool(ev.get("under_pressure", False)),
-                    ))
+                event_rows.append((
+                    ev_id,
+                    int(ev.get("index", 0)),
+                    match_id,
+                    team_id,
+                    player_id,
+                    type_id,
+                    int(ev.get("period", 0)),
+                    int(ev.get("minute", 0)),
+                    int(ev.get("second", 0)),
+                    str(ev.get("timestamp", "")),
+                    lx, ly,
+                    float(ev["duration"]) if ev.get("duration") is not None else None,
+                    int(ev.get("possession", 0)),
+                    bool(ev.get("under_pressure", False)),
+                ))
 
-                psycopg2.extras.execute_batch(cur, """
-                    INSERT INTO fact_events (
-                        event_uuid, event_index, match_id, team_id, player_id, type_id,
-                        period, minute, second, timestamp,
-                        location_x, location_y, duration, possession, under_pressure
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (match_id, event_index) DO NOTHING;
-                """, event_rows, page_size=500)
+                # Pass sub-event
+                if isinstance(ev.get("pass"), dict):
+                    p = ev["pass"]
+                    recipient = p.get("recipient") or {}
+                    recipient_id = recipient.get("id") if isinstance(recipient, dict) else None
+                    if recipient_id and recipient.get("name"):
+                        players[recipient_id] = recipient["name"]
 
-                # ── fact_passes ──
-                pass_events = events[events["type"] == "Pass"] if "type" in events.columns else pd.DataFrame()
-                pass_rows = []
-                for _, ev in pass_events.iterrows():
-                    end_loc = ev.get("pass_end_location")
-                    ex = float(end_loc[0]) if isinstance(end_loc, list) and len(end_loc) >= 2 else None
-                    ey = float(end_loc[1]) if isinstance(end_loc, list) and len(end_loc) >= 2 else None
+                    end_loc = p.get("end_location") or []
+                    ex = float(end_loc[0]) if len(end_loc) >= 2 else None
+                    ey = float(end_loc[1]) if len(end_loc) >= 2 else None
+
+                    outcome  = p.get("outcome")   or {}
+                    height   = p.get("height")    or {}
+                    bp       = p.get("body_part") or {}
+                    ptype    = p.get("type")      or {}
+
                     pass_rows.append((
-                        str(ev["id"]),
-                        int(ev["pass_recipient_id"]) if pd.notna(ev.get("pass_recipient_id")) else None,
-                        float(ev["pass_length"]) if pd.notna(ev.get("pass_length")) else None,
-                        float(ev["pass_angle"]) if pd.notna(ev.get("pass_angle")) else None,
+                        ev_id,
+                        recipient_id,
+                        p.get("length"),
+                        p.get("angle"),
                         ex, ey,
-                        str(ev.get("pass_height", "")) or None,
-                        str(ev.get("pass_body_part", "")) or None,
-                        str(ev.get("pass_type", "")) or None,
-                        str(ev.get("pass_outcome", "")) or None,
-                        bool(ev.get("pass_cross", False)),
-                        bool(ev.get("pass_through_ball", False)),
-                        bool(ev.get("pass_switch", False)),
+                        height.get("name")  if isinstance(height, dict)  else None,
+                        bp.get("name")      if isinstance(bp, dict)      else None,
+                        ptype.get("name")   if isinstance(ptype, dict)   else None,
+                        outcome.get("name") if isinstance(outcome, dict) else None,
+                        bool(p.get("cross", False)),
+                        bool(p.get("through_ball", False)),
+                        bool(p.get("switch", False)),
                     ))
-                if pass_rows:
-                    psycopg2.extras.execute_batch(cur, """
-                        INSERT INTO fact_passes (
-                            event_uuid, recipient_id, pass_length, pass_angle,
-                            pass_end_x, pass_end_y, pass_height, pass_body_part,
-                            pass_type, pass_outcome, is_cross, through_ball, switch
-                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT (event_uuid) DO NOTHING;
-                    """, pass_rows, page_size=500)
 
-                # ── fact_shots ──
-                shot_events = events[events["type"] == "Shot"] if "type" in events.columns else pd.DataFrame()
-                shot_rows = []
-                for _, ev in shot_events.iterrows():
-                    end_loc = ev.get("shot_end_location")
-                    ex = float(end_loc[0]) if isinstance(end_loc, list) and len(end_loc) >= 1 else None
-                    ey = float(end_loc[1]) if isinstance(end_loc, list) and len(end_loc) >= 2 else None
-                    ez = float(end_loc[2]) if isinstance(end_loc, list) and len(end_loc) >= 3 else None
+                # Shot sub-event
+                if isinstance(ev.get("shot"), dict):
+                    s = ev["shot"]
+                    end_loc = s.get("end_location") or []
+                    ex = float(end_loc[0]) if len(end_loc) >= 1 else None
+                    ey = float(end_loc[1]) if len(end_loc) >= 2 else None
+                    ez = float(end_loc[2]) if len(end_loc) >= 3 else None
+
+                    outcome   = s.get("outcome")   or {}
+                    technique = s.get("technique") or {}
+                    bp        = s.get("body_part") or {}
+
                     shot_rows.append((
-                        str(ev["id"]),
-                        float(ev["shot_statsbomb_xg"]) if pd.notna(ev.get("shot_statsbomb_xg")) else None,
+                        ev_id,
+                        s.get("statsbomb_xg"),
                         ex, ey, ez,
-                        str(ev.get("shot_outcome", "")) or None,
-                        str(ev.get("shot_technique", "")) or None,
-                        str(ev.get("shot_body_part", "")) or None,
-                        bool(ev.get("shot_first_time", False)),
-                        bool(ev.get("shot_one_on_one", False)),
+                        outcome.get("name")   if isinstance(outcome, dict)   else None,
+                        technique.get("name") if isinstance(technique, dict) else None,
+                        bp.get("name")        if isinstance(bp, dict)        else None,
+                        bool(s.get("first_time", False)),
+                        bool(s.get("one_on_one", False)),
                     ))
-                if shot_rows:
-                    psycopg2.extras.execute_batch(cur, """
-                        INSERT INTO fact_shots (
-                            event_uuid, shot_xg, shot_end_x, shot_end_y, shot_end_z,
-                            shot_outcome, shot_technique, shot_body_part,
-                            first_time, one_on_one
-                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT (event_uuid) DO NOTHING;
-                    """, shot_rows, page_size=500)
 
-                conn.commit()
-                log.info("Loaded match %s into PostgreSQL", match_id)
+            # Insert dims first (FK targets), then facts
+            if players:
+                psycopg2.extras.execute_batch(cur, """
+                    INSERT INTO dim_players (player_id, player_name)
+                    VALUES (%s, %s)
+                    ON CONFLICT (player_id) DO NOTHING;
+                """, list(players.items()), page_size=500)
+            if teams:
+                psycopg2.extras.execute_batch(cur, """
+                    INSERT INTO dim_teams (team_id, team_name)
+                    VALUES (%s, %s)
+                    ON CONFLICT (team_id) DO NOTHING;
+                """, list(teams.items()), page_size=500)
+            if event_types:
+                psycopg2.extras.execute_batch(cur, """
+                    INSERT INTO dim_event_types (type_id, type_name)
+                    VALUES (%s, %s)
+                    ON CONFLICT (type_id) DO NOTHING;
+                """, list(event_types.items()), page_size=500)
+
+            psycopg2.extras.execute_batch(cur, """
+                INSERT INTO fact_events (
+                    event_uuid, event_index, match_id, team_id, player_id, type_id,
+                    period, minute, second, timestamp,
+                    location_x, location_y, duration, possession, under_pressure
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (match_id, event_index) DO NOTHING;
+            """, event_rows, page_size=500)
+
+            if pass_rows:
+                psycopg2.extras.execute_batch(cur, """
+                    INSERT INTO fact_passes (
+                        event_uuid, recipient_id, pass_length, pass_angle,
+                        pass_end_x, pass_end_y, pass_height, pass_body_part,
+                        pass_type, pass_outcome, is_cross, through_ball, switch
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (event_uuid) DO NOTHING;
+                """, pass_rows, page_size=500)
+
+            if shot_rows:
+                psycopg2.extras.execute_batch(cur, """
+                    INSERT INTO fact_shots (
+                        event_uuid, shot_xg, shot_end_x, shot_end_y, shot_end_z,
+                        shot_outcome, shot_technique, shot_body_part,
+                        first_time, one_on_one
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (event_uuid) DO NOTHING;
+                """, shot_rows, page_size=500)
+
+            conn.commit()
+            log.info("Loaded match %s: %d events", match_id, len(event_rows))
 
         cur.close()
         conn.close()
