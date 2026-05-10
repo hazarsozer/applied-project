@@ -148,6 +148,7 @@ fit together.
 
 \begin{figure}[ht]
 \centering
+\resizebox{\columnwidth}{!}{%
 \begin{tikzpicture}[
   box/.style={draw, rounded corners=3pt, minimum width=2.6cm,
               minimum height=0.65cm, font=\scriptsize, align=center},
@@ -172,7 +173,8 @@ fit together.
   \draw[arrow] (es)   -- (kb);
   \draw[arrow] (rp)   -- node[right,label]{streams} (es);
   \draw[arrow] (rp) -| ([xshift=-0.4cm]pg.south) -- (pg);
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{System component diagram with primary data flow directions.}
 \label{fig:arch}
 \end{figure}
