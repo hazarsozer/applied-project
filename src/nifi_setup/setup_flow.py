@@ -241,9 +241,9 @@ def build_nifi_flow(token: str, root_id: str) -> None:
             "File Filter":      "[\\s\\S]*\\.json",
             "Keep Source File": "false",
             "Minimum File Age": "2 sec",
-            "Batch Size":       "1",
+            "Batch Size":       "5",
         },
-        x=50, y=50, period="15 sec",
+        x=50, y=50, period="1 sec",
     )
 
     # 2 ── SplitJson: explode array of events → one FlowFile per event

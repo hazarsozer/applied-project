@@ -9,7 +9,7 @@ GitHub repository:
 
 Competitions ingested:
   - UEFA Euro 2024  (competition_id=55, season_id=282)
-  - La Liga 2015/16 (competition_id=11, season_id=27)
+  - FIFA World Cup 2022 (competition_id=43, season_id=106)
 
 The raw event files are written to the `shared-data` Docker volume at `/shared/raw/`
 and processed by Apache NiFi into Elasticsearch.

@@ -4,7 +4,7 @@ Generate Kibana saved_objects.ndjson.
 
 Two fully independent dashboards:
   - UEFA Euro 2024 Analytics
-  - La Liga 2015/16 Analytics
+  - FIFA World Cup 2022 Analytics
 
 No data is mixed between competitions.
 """
